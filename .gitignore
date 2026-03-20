@@ -2,4 +2,4 @@
 Payload/
 build/
 OpenClaw.xcodeproj/
-OpenClaw.ipa
+OpenClaw-*.ipa
