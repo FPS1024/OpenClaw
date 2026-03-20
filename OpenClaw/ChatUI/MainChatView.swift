@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import MarkdownUI
 
 struct MainChatView: View {
     @State private var inputText = ""
@@ -166,13 +167,25 @@ struct ChatBubble: View {
     var body: some View {
         HStack {
             if message.isUser { Spacer(minLength: 30) }
-            Text(message.text)
+            bubbleContent
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .foregroundColor(message.isUser ? .white : .primary)
                 .background(message.isUser ? Color.accentColor : Color(.systemGray5))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             if !message.isUser { Spacer(minLength: 30) }
+        }
+    }
+
+    @ViewBuilder
+    private var bubbleContent: some View {
+        if message.isUser {
+            Text(message.text)
+        } else {
+            Markdown(message.text)
+                .markdownTextStyle {
+                    FontSize(15)
+                }
         }
     }
 }
