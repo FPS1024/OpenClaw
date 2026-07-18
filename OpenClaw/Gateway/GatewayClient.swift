@@ -37,6 +37,8 @@ final class GatewayClient: ObservableObject {
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var keepAliveTask: Task<Void, Never>?
+    private var connectionTimeoutTask: Task<Void, Never>?
+    private var activeConnectionAttempt: UUID?
     private let pendingResponses = PendingResponseStore()
     private var activeRunMessageIds: [String: UUID] = [:]
     private let sessionKey = "main"
@@ -91,6 +93,7 @@ final class GatewayClient: ObservableObject {
 
     func connect() {
         guard connectionState != .connecting else { return }
+        cleanupSocket()
         persistSettings()
         Task { await connectInternal(retryOnSignatureInvalid: true) }
     }
@@ -150,23 +153,28 @@ final class GatewayClient: ObservableObject {
     }
 
     private func connectInternal(retryOnSignatureInvalid: Bool) async {
+        let attempt = UUID()
+        activeConnectionAttempt = attempt
         connectionState = .connecting
         lastPingMs = nil
         lastEventAt = nil
 
         guard let port = Int(portText), port > 0, port <= 65535 else {
             connectionState = .error("Invalid port")
+            cleanupSocket()
             return
         }
 
         guard let url = GatewayURLBuilder.makeURL(host: host, port: port, useTLS: useTLS) else {
             connectionState = .error("Invalid host")
+            cleanupSocket()
             return
         }
 
         let task = session.webSocketTask(with: url)
         socket = task
         task.resume()
+        startConnectionTimeout(for: attempt)
 
         do {
             let challenge = try await receiveFrame()
@@ -192,12 +200,14 @@ final class GatewayClient: ObservableObject {
                 role: "operator",
                 scopes: GatewayScopes.operatorScopes,
                 token: signingToken,
-                version: .v3
+                // Gateway protocol v4 keeps the v2 device-auth payload for
+                // compatibility with the native OpenClaw clients.
+                version: .v2
             )
 
             let connectParams: [String: Any] = [
-                "minProtocol": 3,
-                "maxProtocol": 3,
+                "minProtocol": GatewayProtocol.version,
+                "maxProtocol": GatewayProtocol.version,
                 "client": GatewayClientInfo.current,
                 "role": "operator",
                 "scopes": GatewayScopes.operatorScopes,
@@ -232,6 +242,7 @@ final class GatewayClient: ObservableObject {
                 let message = (response["error"] as? [String: Any])?["message"] as? String ?? "Connect failed"
                 if retryOnSignatureInvalid, shouldRetryForSignatureInvalid(message: message) {
                     deviceToken = nil
+                    cleanupSocket()
                     await connectInternal(retryOnSignatureInvalid: false)
                     return
                 }
@@ -243,12 +254,14 @@ final class GatewayClient: ObservableObject {
                 deviceToken = issued
             }
 
+            finishConnectionAttempt(attempt)
             connectionState = .connected
             startKeepAliveLoop()
             startReceiveLoop()
             await refreshHistory()
         } catch {
-            connectionState = .error(error.localizedDescription)
+            guard activeConnectionAttempt == attempt else { return }
+            connectionState = .error(connectionErrorMessage(error))
             cleanupSocket()
         }
     }
@@ -264,6 +277,9 @@ final class GatewayClient: ObservableObject {
     }
 
     private func cleanupSocket() {
+        connectionTimeoutTask?.cancel()
+        connectionTimeoutTask = nil
+        activeConnectionAttempt = nil
         receiveTask?.cancel()
         receiveTask = nil
         keepAliveTask?.cancel()
@@ -273,6 +289,48 @@ final class GatewayClient: ObservableObject {
         Task { await pendingResponses.removeAll() }
         activeRunMessageIds.removeAll()
         isStreaming = false
+    }
+
+    private func startConnectionTimeout(for attempt: UUID) {
+        connectionTimeoutTask?.cancel()
+        connectionTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard let self,
+                  !Task.isCancelled,
+                  self.activeConnectionAttempt == attempt,
+                  self.connectionState == .connecting
+            else { return }
+            self.connectionState = .error("Connection timed out. Check the gateway address, port, and network.")
+            self.cleanupSocket()
+        }
+    }
+
+    private func finishConnectionAttempt(_ attempt: UUID) {
+        guard activeConnectionAttempt == attempt else { return }
+        connectionTimeoutTask?.cancel()
+        connectionTimeoutTask = nil
+        activeConnectionAttempt = nil
+    }
+
+    private func connectionErrorMessage(_ error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorNotConnectedToInternet:
+                return "No internet connection."
+            case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
+                return "Gateway host could not be found."
+            case NSURLErrorCannotConnectToHost, NSURLErrorNetworkConnectionLost:
+                return "Could not connect to the gateway. Check the address, port, and network."
+            case NSURLErrorSecureConnectionFailed:
+                return "Secure connection failed. Check the TLS setting."
+            case NSURLErrorTimedOut:
+                return "Connection timed out. Check the gateway address, port, and network."
+            default:
+                break
+            }
+        }
+        return error.localizedDescription
     }
 
     private func startKeepAliveLoop() {
@@ -368,6 +426,7 @@ final class GatewayClient: ObservableObject {
                     await MainActor.run {
                         if case .connected = self.connectionState {
                             self.connectionState = .error("Disconnected")
+                            self.cleanupSocket()
                         }
                     }
                     break
@@ -553,6 +612,10 @@ enum GatewayScopes {
         "operator.approvals",
         "operator.pairing"
     ]
+}
+
+enum GatewayProtocol {
+    static let version = 4
 }
 
 enum GatewayAuthParams {

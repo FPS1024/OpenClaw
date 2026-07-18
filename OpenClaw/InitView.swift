@@ -9,47 +9,25 @@ import SwiftUI
 import Network
 
 struct InitView: View {
-    @State private var isReady = false
     @EnvironmentObject private var gateway: GatewayClient
     @Environment(\.scenePhase) private var scenePhase
     @State private var permissionRequested = false
 
     var body: some View {
-        Group {
-            if isReady {
-                RootView()
-            } else {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                    Text("Connecting...")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemBackground))
-            }
-        }
+        RootView()
         .task {
-            await requestLocalNetworkPermissionIfNeeded()
+            requestLocalNetworkPermissionIfNeeded()
             gateway.connect()
-        }
-        .onChange(of: gateway.connectionState) { _ in
-            if gateway.connectionState == .connected {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    isReady = true
-                }
-            }
         }
         .onChange(of: scenePhase) { phase in
             gateway.handleScenePhase(phase)
         }
     }
 
-    private func requestLocalNetworkPermissionIfNeeded() async {
+    private func requestLocalNetworkPermissionIfNeeded() {
         guard !permissionRequested else { return }
         permissionRequested = true
-        await LocalNetworkPermissionRequester.request()
+        LocalNetworkPermissionRequester.request()
     }
 }
 

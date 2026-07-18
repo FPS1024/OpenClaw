@@ -1,5 +1,6 @@
 .DS_Store
 Payload/
 build/
-OpenClaw.xcodeproj/
-OpenClaw-*.ipa
+build_output/
+build.log
+*.ipa

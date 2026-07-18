@@ -16,6 +16,7 @@ struct MainChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            connectionBanner
             ZStack {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
@@ -83,6 +84,42 @@ struct MainChatView: View {
             }
         } message: {
             Text("This will clear the current conversation.")
+        }
+    }
+
+    @ViewBuilder
+    private var connectionBanner: some View {
+        switch gateway.connectionState {
+        case .connected:
+            EmptyView()
+        case .connecting:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Connecting to gateway…")
+            }
+            .font(.footnote)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color(.systemGray6))
+        case .disconnected:
+            Label("Gateway is disconnected. Configure it in Settings.", systemImage: "wifi.slash")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color(.systemGray6))
+        case let .error(message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote)
+                .foregroundColor(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.red.opacity(0.08))
         }
     }
 
