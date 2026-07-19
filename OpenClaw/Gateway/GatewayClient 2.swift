@@ -413,10 +413,6 @@ final class GatewayClient: ObservableObject {
         }
     }
 
-    func reloadSessions() async {
-        await fetchSessions()
-    }
-
     private func fetchSessions() async {
         guard connectionState == .connected else { return }
         let params: [String: Any] = ["limit": 100, "includeGlobal": true]
@@ -621,47 +617,13 @@ final class GatewayClient: ObservableObject {
     }
 
     private func extractMessageText(_ value: Any?) -> String? {
-        // 纯字符串
-        if let text = value as? String { return text.isEmpty ? nil : text }
-
-        // 字典：{"text": "..."} 或 {"content": "..."} 或 {"content": [...]}
+        if let text = value as? String { return text }
         if let dict = value as? [String: Any] {
-            if let text = dict["text"] as? String { return text.isEmpty ? nil : text }
-            if let content = dict["content"] {
-                return extractMessageText(content)
-            }
-            if let parts = dict["parts"] as? [String] {
-                let joined = parts.joined()
-                return joined.isEmpty ? nil : joined
-            }
+            if let text = dict["text"] as? String { return text }
+            if let content = dict["content"] as? String { return content }
+            if let parts = dict["parts"] as? [String] { return parts.joined() }
         }
-
-        // 内容块数组：[{"type": "text", "text": "..."}]
-        // 这是 chat.history 返回的标准格式，必须处理
-        if let blocks = value as? [Any] {
-            let texts = blocks.compactMap { item -> String? in
-                guard let block = item as? [String: Any],
-                      block["type"] as? String == "text",
-                      let text = block["text"] as? String,
-                      !text.isEmpty
-                else { return nil }
-                return text
-            }
-            let joined = texts.joined()
-            return joined.isEmpty ? nil : joined
-        }
-
         return nil
-    }
-}
-
-struct SessionEntry: Identifiable, Equatable {
-    let key: String
-    let label: String?
-    var id: String { key }
-    var displayTitle: String {
-        if let label, !label.isEmpty { return label }
-        return key
     }
 }
 

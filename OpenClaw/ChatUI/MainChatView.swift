@@ -13,41 +13,48 @@ struct MainChatView: View {
     @EnvironmentObject private var gateway: GatewayClient
     @FocusState private var isInputFocused: Bool
     @State private var showNewChatAlert = false
+    @State private var showSessionDrawer = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            connectionBanner
-            ZStack {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(spacing: 12) {
-                            ForEach(messages) { message in
-                                ChatBubble(message: message)
-                                    .id(message.id)
+        ZStack {
+            VStack(spacing: 0) {
+                connectionBanner
+                ZStack {
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(spacing: 12) {
+                                ForEach(messages) { message in
+                                    ChatBubble(message: message)
+                                        .id(message.id)
+                                }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        isInputFocused = false
-                    }
-                    .background(Color(.systemBackground))
-                    .onChange(of: lastMessageId) { _ in
-                        scrollToBottom(proxy, animated: true)
-                    }
-                    .onChange(of: lastMessageText) { _ in
-                        scrollToBottom(proxy, animated: false)
-                    }
-                    .onAppear {
-                        scrollToBottom(proxy, animated: false)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            isInputFocused = false
+                        }
+                        .background(Color(.systemBackground))
+                        .onChange(of: lastMessageId) { _ in
+                            scrollToBottom(proxy, animated: true)
+                        }
+                        .onChange(of: lastMessageText) { _ in
+                            scrollToBottom(proxy, animated: false)
+                        }
+                        .onAppear {
+                            scrollToBottom(proxy, animated: false)
+                        }
                     }
                 }
+
+                inputBar
+                Divider()
             }
 
-            inputBar
-            Divider()
+            // 左侧会话抽屉
+            SessionDrawerView(isShowing: $showSessionDrawer)
+                .ignoresSafeArea()
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -56,14 +63,16 @@ struct MainChatView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
-                    Text("OpenClaw")
+                    Text(currentSessionTitle)
                         .font(.headline)
                     StatusLight(isConnected: gateway.connectionState == .connected)
                 }
             }
             ToolbarItem(placement: .navigationBarLeading) {
                 Button {
-                    // menu action removed
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showSessionDrawer.toggle()
+                    }
                 } label: {
                     Image(systemName: "line.3.horizontal")
                 }
@@ -77,14 +86,20 @@ struct MainChatView: View {
             }
         }
         .background(Color(.systemBackground))
-        .alert("Start New Chat?", isPresented: $showNewChatAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Confirm", role: .destructive) {
+        .alert("开始新对话？", isPresented: $showNewChatAlert) {
+            Button("取消", role: .cancel) {}
+            Button("确认", role: .destructive) {
                 gateway.clearMessages()
             }
         } message: {
-            Text("This will clear the current conversation.")
+            Text("这将清除当前会话的消息记录。")
         }
+    }
+
+    private var currentSessionTitle: String {
+        gateway.availableSessions
+            .first { $0.key == gateway.currentSessionKey }?
+            .displayTitle ?? gateway.currentSessionKey
     }
 
     @ViewBuilder
